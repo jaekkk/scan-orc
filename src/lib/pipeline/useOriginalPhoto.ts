@@ -31,5 +31,12 @@ export async function buildPageFromOriginal(page: Page): Promise<Page> {
     width: canvas.width,
     height: canvas.height,
     boundaryConfidence: 'fallback',
+    // No crop applied — the editor should start from the full frame if the user opens manual adjust next.
+    quad: [
+      { x: 0, y: 0 },
+      { x: canvas.width, y: 0 },
+      { x: canvas.width, y: canvas.height },
+      { x: 0, y: canvas.height },
+    ],
   }
 }

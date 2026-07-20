@@ -5,13 +5,14 @@ import { warpPerspective } from '../imaging/warpPerspective'
 import { applyScanEffect } from '../imaging/scanEffect'
 import type { RawImage } from '../imaging/rawImage'
 import { canvasToBlob, downscaleCanvas, drawToCanvas } from './canvasUtils'
+import { generatePageId } from './randomId'
 
 const MAX_DIMENSION = 2400
 const DETECTION_MAX_DIMENSION = 500
 const THUMBNAIL_MAX_DIMENSION = 320
 const MIN_AREA_RATIO_FOR_FALLBACK_INSET = 0.05
 
-function getImageData(canvas: HTMLCanvasElement): RawImage {
+export function getImageData(canvas: HTMLCanvasElement): RawImage {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 2D context unavailable')
   return ctx.getImageData(0, 0, canvas.width, canvas.height)
@@ -27,11 +28,31 @@ function rawImageToCanvas(image: RawImage): HTMLCanvasElement {
   return canvas
 }
 
-function warpAndEnhance(sourceImage: RawImage, quad: Quad): RawImage {
+export function warpAndEnhance(sourceImage: RawImage, quad: Quad): RawImage {
   const ordered = orderPoints(quad)
   const { width, height } = warpedSize(ordered)
   const warped = warpPerspective(sourceImage, ordered, width, height)
   return applyScanEffect(warped)
+}
+
+/** Renders an enhanced RawImage to its full-size and thumbnail blobs, shared by the initial capture pipeline and the manual crop re-processing path. */
+export async function buildImageAssets(enhanced: RawImage) {
+  const fullCanvas = rawImageToCanvas(enhanced)
+  const thumbCanvas = downscaleCanvas(fullCanvas, THUMBNAIL_MAX_DIMENSION)
+
+  const [fullImageBlob, thumbnailBlob] = await Promise.all([
+    canvasToBlob(fullCanvas),
+    canvasToBlob(thumbCanvas),
+  ])
+
+  return {
+    fullImageBlob,
+    thumbnailBlob,
+    fullImageUrl: URL.createObjectURL(fullImageBlob),
+    thumbnailUrl: URL.createObjectURL(thumbnailBlob),
+    width: fullCanvas.width,
+    height: fullCanvas.height,
+  }
 }
 
 /** Attempts the detected-quad warp; returns null (rather than throwing) so the caller can fall back to a safe default crop. */
@@ -74,31 +95,27 @@ export async function processImageFile(file: File): Promise<Page> {
   const detectedQuad = detectQuadSafely(detectionImage, detectionScale)
 
   let boundaryConfidence: BoundaryConfidence = 'detected'
+  let usedQuad = detectedQuad
   let enhanced = tryWarpAndEnhance(sourceImage, detectedQuad)
   if (!enhanced) {
     boundaryConfidence = 'fallback'
-    const fallbackQuad = insetQuad(sourceImage.width, sourceImage.height, MIN_AREA_RATIO_FOR_FALLBACK_INSET)
-    enhanced = warpAndEnhance(sourceImage, fallbackQuad)
+    usedQuad = insetQuad(sourceImage.width, sourceImage.height, MIN_AREA_RATIO_FOR_FALLBACK_INSET)
+    enhanced = warpAndEnhance(sourceImage, usedQuad)
   }
 
-  const fullCanvas = rawImageToCanvas(enhanced)
-  const thumbCanvas = downscaleCanvas(fullCanvas, THUMBNAIL_MAX_DIMENSION)
-
-  const [fullImageBlob, thumbnailBlob] = await Promise.all([
-    canvasToBlob(fullCanvas),
-    canvasToBlob(thumbCanvas),
-  ])
+  const assets = await buildImageAssets(enhanced)
 
   return {
-    id: crypto.randomUUID(),
-    thumbnailUrl: URL.createObjectURL(thumbnailBlob),
-    fullImageUrl: URL.createObjectURL(fullImageBlob),
-    fullImageBlob,
-    width: fullCanvas.width,
-    height: fullCanvas.height,
+    id: generatePageId(),
+    thumbnailUrl: assets.thumbnailUrl,
+    fullImageUrl: assets.fullImageUrl,
+    fullImageBlob: assets.fullImageBlob,
+    width: assets.width,
+    height: assets.height,
     boundaryConfidence,
     createdAt: Date.now(),
     originalImageUrl: URL.createObjectURL(originalImageBlob),
     originalImageBlob,
+    quad: usedQuad as Quad,
   }
 }

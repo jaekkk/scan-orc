@@ -1,3 +1,5 @@
+import type { Quad } from '../lib/imaging/geometry'
+
 export type BoundaryConfidence = 'detected' | 'fallback'
 
 export interface Page {
@@ -14,4 +16,6 @@ export interface Page {
   /** Undistorted, unenhanced photo as captured — kept so the user can fall back to it. */
   originalImageUrl: string
   originalImageBlob: Blob
+  /** The crop quad (detected or fallback), in originalImage pixel coordinates — prefills the manual crop editor. */
+  quad: Quad
 }

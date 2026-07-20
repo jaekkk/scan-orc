@@ -1,14 +1,43 @@
+import { useState } from 'react'
 import type { Page } from '../types/page'
+import type { Quad } from '../lib/imaging/geometry'
+import { CropAdjustModal } from './CropAdjustModal'
 
 interface PagePreviewModalProps {
   page: Page
   pageIndex: number
+  /** Open straight into the crop editor — used when auto-detection failed and the user should fix it immediately. */
+  startInCropEditor?: boolean
   onClose: () => void
   onRetake: (page: Page) => void
   onUseOriginal: (page: Page) => void
+  onManualCrop: (page: Page, quad: Quad) => void
 }
 
-export function PagePreviewModal({ page, pageIndex, onClose, onRetake, onUseOriginal }: PagePreviewModalProps) {
+export function PagePreviewModal({
+  page,
+  pageIndex,
+  startInCropEditor = false,
+  onClose,
+  onRetake,
+  onUseOriginal,
+  onManualCrop,
+}: PagePreviewModalProps) {
+  const [adjusting, setAdjusting] = useState(startInCropEditor)
+
+  if (adjusting) {
+    return (
+      <CropAdjustModal
+        page={page}
+        onCancel={() => setAdjusting(false)}
+        onConfirm={(quad) => {
+          setAdjusting(false)
+          onManualCrop(page, quad)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -28,6 +57,9 @@ export function PagePreviewModal({ page, pageIndex, onClose, onRetake, onUseOrig
         )}
 
         <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={() => setAdjusting(true)}>
+            직접 보정
+          </button>
           <button type="button" className="secondary-button" onClick={() => onRetake(page)}>
             재촬영
           </button>
