@@ -18,18 +18,41 @@ function makeGradientImage(width: number, height: number, low: number, high: num
 }
 
 describe('applyScanEffect', () => {
-  it('stretches a low-contrast gray gradient toward the full 0-255 range', () => {
+  it('flattens a smooth low-contrast gradient rather than stretching it — it reads as a lighting gradient (shadow/flash falloff), not real page content', () => {
+    // A page is physically flat and evenly toned apart from ink; a smooth
+    // brightness ramp across the whole frame is exactly what a shadow or
+    // uneven flash looks like, so shading correction is supposed to flatten
+    // it to a consistent brightness rather than preserve/stretch it as if
+    // it were genuine contrast.
     const img = makeGradientImage(101, 1, 100, 150)
     const out = applyScanEffect(img)
     const firstPixel = out.data[0]
     const lastPixel = out.data[(100) * 4]
-    // The black point is deliberately capped (see MAX_BLACK_POINT) so a
-    // page with little dark content never gets crushed toward black, which
-    // means a narrow bright-range gradient like this one doesn't get pushed
-    // to the extremes quite as hard as a naive full-range stretch would —
-    // contrast still clearly increases, just not all the way to <50.
-    expect(lastPixel).toBeGreaterThan(200)
-    expect(lastPixel - firstPixel).toBeGreaterThan(80)
+    expect(Math.abs(lastPixel - firstPixel)).toBeLessThan(20)
+  })
+
+  it('stretches genuinely low-contrast content (distinct ink vs. paper tones, not a smooth gradient) toward the full 0-255 range', () => {
+    const width = 100
+    const height = 100
+    const data = new Uint8ClampedArray(width * height * 4).fill(150)
+    for (let i = 3; i < data.length; i += 4) data[i] = 255
+    // A couple of thin text-like lines rather than one large solid block —
+    // real ink is thin strokes with paper visible around it even at small
+    // scale, not a solid filled rectangle (which no real document has).
+    for (const y of [40, 41, 55, 56]) {
+      for (let x = 20; x < 80; x++) {
+        const i = (y * width + x) * 4
+        data[i] = 100
+        data[i + 1] = 100
+        data[i + 2] = 100
+      }
+    }
+
+    const out = applyScanEffect({ width, height, data })
+    const paper = out.data[(10 * width + 10) * 4]
+    const ink = out.data[(40 * width + 50) * 4]
+    expect(paper).toBeGreaterThan(200)
+    expect(paper - ink).toBeGreaterThan(80)
   })
 
   it('preserves image dimensions and alpha channel', () => {
@@ -96,6 +119,34 @@ describe('applyScanEffect', () => {
     const out = applyScanEffect({ width, height, data })
     const paperPixel = out.data[(50 * width + 50) * 4]
     expect(paperPixel).toBeGreaterThan(200)
+  })
+
+  it('brings a page with a shadow over only part of it to a consistent brightness end-to-end, instead of leaving a visible seam', () => {
+    // Regression coverage for the reported complaint: a hand/phone casting a
+    // shadow over roughly half the page during capture used to leave that
+    // half visibly darker/grayer than the rest after enhancement — a
+    // jarring discontinuity ("이질감") right at the shadow boundary.
+    const width = 200
+    const height = 100
+    const data = new Uint8ClampedArray(width * height * 4)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // Smooth falloff — real shadow edges are soft, not a hard step.
+        const t = x / (width - 1)
+        const v = Math.round(140 + (230 - 140) * t) // shadowed on the left, lit on the right
+        const i = (y * width + x) * 4
+        data[i] = v
+        data[i + 1] = v
+        data[i + 2] = v
+        data[i + 3] = 255
+      }
+    }
+
+    const out = applyScanEffect({ width, height, data })
+    const shadowedPaper = out.data[(50 * width + 20) * 4]
+    const litPaper = out.data[(50 * width + 180) * 4]
+    expect(shadowedPaper).toBeGreaterThan(220)
+    expect(Math.abs(litPaper - shadowedPaper)).toBeLessThan(25)
   })
 
   it('produces near-identical paper color for warm- and cool-tinted versions of the same page', () => {

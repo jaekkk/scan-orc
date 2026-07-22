@@ -1,6 +1,7 @@
 import type { RawImage } from './rawImage'
 import { boxBlur } from './otsu'
 import { extractChannel } from './channels'
+import { flattenShading } from './shading'
 
 // Per-channel highlight percentile treated as "paper white" — forcing it to
 // true neutral 255 is what makes the same document scan the same color
@@ -97,15 +98,18 @@ function sharpen(data: Uint8ClampedArray, width: number, height: number): Uint8C
 }
 
 /**
- * Scan-look pipeline: white-balance (neutralizes ambient color cast so the
- * page reads the same regardless of lighting) -> black-point contrast
- * stretch (uniform across channels, so it doesn't re-tint) -> unsharp mask
- * (fixes warp-induced softness) -> an exposure push for extra brightness.
+ * Scan-look pipeline: shading flatten (removes shadows/uneven lighting so
+ * the whole page reads as one consistent brightness) -> white-balance
+ * (neutralizes ambient color cast so the page reads the same regardless of
+ * lighting) -> black-point contrast stretch (uniform across channels, so it
+ * doesn't re-tint) -> unsharp mask (fixes warp-induced softness) -> an
+ * exposure push for extra brightness.
  */
 export function applyScanEffect(image: RawImage): RawImage {
   const { width, height } = image
 
-  let out = whiteBalance(image.data, width, height)
+  let out = flattenShading(image).data
+  out = whiteBalance(out, width, height)
   out = stretchBlackPoint(out, width, height)
   out = sharpen(out, width, height)
 
