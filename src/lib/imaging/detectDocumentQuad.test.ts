@@ -209,6 +209,46 @@ describe('detectDocumentQuad', () => {
     expect(detectedArea).toBeLessThan(expectedArea * 1.15)
   })
 
+  it('does not let a thin glare bridge at one corner drag that corner out into the background', () => {
+    // Regression coverage for a real report: the green boundary overshot
+    // past the document's real edge at exactly one corner. Root cause: a
+    // narrow (1-2px) bright bridge — e.g. glare or a shadow gradient locally
+    // matching the document's brightness — connects the document blob to
+    // the background right at that corner. Since it's 4-connected to the
+    // document, the flood fill folds it into the same component, and the
+    // hull follows the bridge out past the true corner. A thin bridge
+    // should get severed by the mask-opening step before it can do that.
+    const width = 200
+    const height = 200
+    const rect = { x0: 40, y0: 30, x1: 160, y1: 120 }
+    const img = makeSyntheticPhoto(width, height, rect)
+
+    // A 1px-wide diagonal bridge running from the document's top-left
+    // corner further up and to the left into the background, simulating a
+    // glare streak that locally bridges document and background brightness.
+    for (let t = 1; t <= 25; t++) {
+      const x = rect.x0 - t
+      const y = rect.y0 - t
+      if (x < 0 || y < 0) break
+      const i = (y * width + x) * 4
+      img.data[i] = 250
+      img.data[i + 1] = 250
+      img.data[i + 2] = 250
+    }
+
+    const quad = detectDocumentQuad(img)
+    expect(quad).not.toBeNull()
+    if (!quad) return
+
+    // The corner closest to the true top-left (40, 30) should stay near it,
+    // not get dragged out toward the bridge's far end (~15, 5).
+    let bestDist = Infinity
+    for (const p of quad) {
+      bestDist = Math.min(bestDist, Math.hypot(p.x - rect.x0, p.y - rect.y0))
+    }
+    expect(bestDist).toBeLessThan(10)
+  })
+
   it('produces a non-degenerate 4-point quad (not a duplicated-point one) for a triangular region', () => {
     // Regression coverage: a hull with fewer than 4 vertices used to get
     // padded into a quad with a duplicated point, which made the

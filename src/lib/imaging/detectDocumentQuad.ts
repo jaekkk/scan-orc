@@ -6,12 +6,19 @@ import { reduceToQuad } from './reduceToQuad'
 import { largestComponent } from './connectedComponents'
 import { flattenIllumination } from './illumination'
 import { extractChannel } from './channels'
+import { openMask } from './morphology'
 import type { RawImage } from './rawImage'
 
 const BLUE_CHANNEL = 2
 
 const MIN_AREA_RATIO = 0.2
 const BLUR_RADIUS = 2
+// Severs thin bridges (glare or a shadow gradient locally blending the
+// document into an adjacent background patch, usually near one corner)
+// before flood-filling for the largest blob — otherwise that bridge lets
+// the background patch's own extent get folded into the document's hull,
+// dragging just that one corner out past the document's real edge.
+const OPEN_RADIUS = 1
 // If a whole SIDE of the detected quad runs flush along a frame border, that
 // side is almost certainly the background's own edge (the background sits
 // against the frame border everywhere it isn't blocked by the document) —
@@ -87,7 +94,8 @@ function hasSideFlushWithBorder(quad: Quad, width: number, height: number): bool
 
 /** Isolates the largest connected blob in `mask`, then reduces its silhouette to a quad — or null if it's too small or (being background bleeding to every edge) actually the frame around the document. */
 function candidateQuad(mask: Uint8Array, width: number, height: number): Quad | null {
-  const component = largestComponent(mask, width, height)
+  const opened = openMask(mask, width, height, OPEN_RADIUS)
+  const component = largestComponent(opened, width, height)
   if (!component) return null
 
   const imageArea = width * height
