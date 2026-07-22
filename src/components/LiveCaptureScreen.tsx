@@ -81,6 +81,19 @@ export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker }: Live
       if (!video || video.readyState < 2 || busyRef.current) return
       busyRef.current = true
       try {
+        // Some mobile browsers keep adjusting videoWidth/videoHeight for a
+        // moment after play() resolves (or renegotiate resolution later).
+        // Re-sync on every tick so the SVG overlay's viewBox — which maps
+        // detected coordinates back onto the displayed video — never drifts
+        // out of sync with the frame actually being detected on, which
+        // would otherwise show up as the boundary box misaligned from the
+        // real video content along whichever axis changed.
+        setVideoSize((prev) =>
+          prev && prev.width === video.videoWidth && prev.height === video.videoHeight
+            ? prev
+            : { width: video.videoWidth, height: video.videoHeight },
+        )
+
         const canvas = drawVideoFrameToCanvas(video, DETECTION_MAX_DIMENSION)
         const scale = video.videoWidth / canvas.width
         const detectionImage = getImageData(canvas)
