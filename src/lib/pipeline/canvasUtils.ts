@@ -12,6 +12,21 @@ export function drawToCanvas(bitmap: ImageBitmap, maxDimension: number): HTMLCan
   return canvas
 }
 
+/** Draws the current frame of a playing video element to a downscaled canvas — used by the live-preview detection loop to grab a cheap-to-process snapshot without pausing or affecting the live stream. */
+export function drawVideoFrameToCanvas(video: HTMLVideoElement, maxDimension: number): HTMLCanvasElement {
+  const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight))
+  const width = Math.round(video.videoWidth * scale)
+  const height = Math.round(video.videoHeight * scale)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D context unavailable')
+  ctx.drawImage(video, 0, 0, width, height)
+  return canvas
+}
+
 export function downscaleCanvas(source: HTMLCanvasElement, maxDimension: number): HTMLCanvasElement {
   const scale = Math.min(1, maxDimension / Math.max(source.width, source.height))
   if (scale === 1) return source

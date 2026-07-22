@@ -1,14 +1,16 @@
 import type { Page, BoundaryConfidence } from '../../types/page'
-import { orderPoints, insetQuad, scaleQuad, warpedSize, type Quad } from '../imaging/geometry'
-import { detectDocumentQuad } from '../imaging/detectDocumentQuad'
+import { orderPoints, insetQuad, warpedSize, type Quad } from '../imaging/geometry'
 import { warpPerspective } from '../imaging/warpPerspective'
 import { applyScanEffect } from '../imaging/scanEffect'
+import { detectScaledQuad } from '../imaging/detectScaledQuad'
 import type { RawImage } from '../imaging/rawImage'
 import { canvasToBlob, downscaleCanvas, drawToCanvas } from './canvasUtils'
 import { generatePageId } from './randomId'
 
-const MAX_DIMENSION = 2400
-const DETECTION_MAX_DIMENSION = 500
+// Also used by the live-capture preview (matching detection resolution) and
+// full-resolution capture (matching MAX_DIMENSION) — exported for reuse.
+export const MAX_DIMENSION = 2400
+export const DETECTION_MAX_DIMENSION = 500
 const THUMBNAIL_MAX_DIMENSION = 320
 const MIN_AREA_RATIO_FOR_FALLBACK_INSET = 0.05
 
@@ -66,16 +68,6 @@ function tryWarpAndEnhance(sourceImage: RawImage, quad: Quad | null): RawImage |
   }
 }
 
-function detectQuadSafely(detectionImage: RawImage, scale: number): Quad | null {
-  try {
-    const detected = detectDocumentQuad(detectionImage)
-    return detected ? scaleQuad(detected, scale) : null
-  } catch (err) {
-    console.error('문서 감지 실패, 기본 자르기로 대체합니다:', err)
-    return null
-  }
-}
-
 export async function processImageFile(file: File): Promise<Page> {
   // imageOrientation defaults to "none" (ignores EXIF) in some browsers,
   // which would leave phone photos sideways/upside-down — force EXIF-correct
@@ -92,7 +84,7 @@ export async function processImageFile(file: File): Promise<Page> {
   const detectionCanvas = downscaleCanvas(sourceCanvas, DETECTION_MAX_DIMENSION)
   const detectionScale = sourceCanvas.width / detectionCanvas.width
   const detectionImage = getImageData(detectionCanvas)
-  const detectedQuad = detectQuadSafely(detectionImage, detectionScale)
+  const detectedQuad = detectScaledQuad(detectionImage, detectionScale)
 
   let boundaryConfidence: BoundaryConfidence = 'detected'
   let usedQuad = detectedQuad

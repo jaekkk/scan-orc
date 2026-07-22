@@ -8,6 +8,7 @@ import { ProcessingOverlay } from './components/ProcessingOverlay'
 import { PageThumbnailStrip } from './components/PageThumbnailStrip'
 import { PagePreviewModal } from './components/PagePreviewModal'
 import { ExportScreen } from './components/ExportScreen'
+import { LiveCaptureScreen } from './components/LiveCaptureScreen'
 import type { Page } from './types/page'
 import type { Quad } from './lib/imaging/geometry'
 
@@ -18,6 +19,10 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [openCropEditorOnPreview, setOpenCropEditorOnPreview] = useState(false)
+  const [showLiveCapture, setShowLiveCapture] = useState(false)
+  // Feature-detected once, not re-checked per render — camera support
+  // doesn't change mid-session.
+  const [liveCaptureSupported] = useState(() => typeof navigator.mediaDevices?.getUserMedia === 'function')
   const { pages, addPage, replacePage, removePage, reorderPages } = usePages()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -25,17 +30,14 @@ function App() {
 
   function openCapture(retakePageId?: string) {
     retakeTargetId.current = retakePageId ?? null
-    fileInputRef.current?.click()
+    if (liveCaptureSupported) {
+      setShowLiveCapture(true)
+    } else {
+      fileInputRef.current?.click()
+    }
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file
-    if (!file) return
-
-    const targetId = retakeTargetId.current
-    retakeTargetId.current = null
-
+  async function processAndStoreFile(file: File, targetId: string | null) {
     setError(null)
     setStep('processing')
     try {
@@ -60,6 +62,28 @@ function App() {
     } finally {
       setStep('capture')
     }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file
+    if (!file) return
+
+    const targetId = retakeTargetId.current
+    retakeTargetId.current = null
+    await processAndStoreFile(file, targetId)
+  }
+
+  function handleLiveCapture(file: File) {
+    setShowLiveCapture(false)
+    const targetId = retakeTargetId.current
+    retakeTargetId.current = null
+    void processAndStoreFile(file, targetId)
+  }
+
+  function handleUseFilePicker() {
+    setShowLiveCapture(false)
+    fileInputRef.current?.click()
   }
 
   function handleRetake(page: Page) {
@@ -112,6 +136,14 @@ function App() {
       />
 
       {error && <div className="error-banner">{error}</div>}
+
+      {showLiveCapture && (
+        <LiveCaptureScreen
+          onCapture={handleLiveCapture}
+          onCancel={() => setShowLiveCapture(false)}
+          onUseFilePicker={handleUseFilePicker}
+        />
+      )}
 
       {step === 'processing' && <ProcessingOverlay message="사진 처리 중…" />}
 

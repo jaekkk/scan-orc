@@ -360,3 +360,105 @@ h1 {
   opacity: 0.35;
   cursor: default;
 }
+
+.live-capture-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.live-capture-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.live-capture-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.live-capture-quad {
+  fill: color-mix(in srgb, #34d399 20%, transparent);
+  stroke: #34d399;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  transition: stroke 0.15s ease, fill 0.15s ease;
+}
+
+.live-capture-hint {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  background: color-mix(in srgb, #000 55%, transparent);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.live-capture-controls {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+}
+
+.live-capture-cancel {
+  position: absolute;
+  left: 24px;
+  font: inherit;
+  background: color-mix(in srgb, #000 55%, transparent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+
+.live-capture-shutter {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff;
+  border: 4px solid color-mix(in srgb, #fff 40%, transparent);
+  cursor: pointer;
+}
+
+.live-capture-shutter:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.live-capture-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: #fff;
+  text-align: center;
+}
+
+.live-capture-error .secondary-button {
+  border-color: color-mix(in srgb, #fff 40%, transparent);
+  color: #fff;
+}
