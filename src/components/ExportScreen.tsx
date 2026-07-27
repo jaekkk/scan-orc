@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Page } from '../types/page'
 import type { ImageFormat } from '../lib/export/buildImageZip'
 import { canShareFiles, shareFiles } from '../lib/export/shareFiles'
+import { resolveFilenameBase, todayAsFilenameBase } from '../lib/export/filename'
 
 interface ExportScreenProps {
   pages: Page[]
@@ -14,6 +15,7 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<string | null>(null)
   const [format, setFormat] = useState<ImageFormat>('jpeg')
+  const [name, setName] = useState('')
   // Feature-detected once, not re-checked per render — Web Share support
   // doesn't change mid-session.
   const [shareSupported] = useState(canShareFiles)
@@ -25,17 +27,18 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
 
   async function buildImageDeliverable(): Promise<{ blob: Blob; filename: string }> {
     const ext = format === 'jpeg' ? 'jpg' : 'png'
+    const base = resolveFilenameBase(name)
 
     if (pages.length === 1) {
       // Single page: skip the zip entirely for a plain one-click transfer.
       const { toImageBlob } = await import('../lib/export/buildImageZip')
       const blob = await toImageBlob(pages[0], format)
-      return { blob, filename: `scan.${ext}` }
+      return { blob, filename: `${base}.${ext}` }
     }
 
     const { buildImageZip } = await import('../lib/export/buildImageZip')
     const blob = await buildImageZip(pages, format)
-    return { blob, filename: 'scan-pages.zip' }
+    return { blob, filename: `${base}.zip` }
   }
 
   async function handleDownloadPdf() {
@@ -43,7 +46,7 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     setBusy('pdf')
     try {
       const [blob, { saveAs }] = await Promise.all([buildPdfBlob(), import('file-saver')])
-      saveAs(blob, 'scan.pdf')
+      saveAs(blob, `${resolveFilenameBase(name)}.pdf`)
     } catch (err) {
       console.error(err)
       setError('PDF 생성 중 오류가 발생했습니다.')
@@ -76,8 +79,9 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     setBusy('share-pdf')
     try {
       const blob = await buildPdfBlob()
-      const file = new File([blob], 'scan.pdf', { type: 'application/pdf' })
-      const result = await shareFiles([file], { title: 'scan.pdf' })
+      const filename = `${resolveFilenameBase(name)}.pdf`
+      const file = new File([blob], filename, { type: 'application/pdf' })
+      const result = await shareFiles([file], { title: filename })
       if (result === 'unsupported') setError('이 브라우저는 공유하기를 지원하지 않습니다. 다운로드를 이용해주세요.')
     } catch (err) {
       console.error(err)
@@ -108,6 +112,17 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
       <p className="page-count">{pages.length}장 내보내기</p>
 
       {error && <div className="error-banner">{error}</div>}
+
+      <label className="export-name-field">
+        파일 이름
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={todayAsFilenameBase()}
+          maxLength={80}
+        />
+      </label>
 
       <div className="export-action-row">
         <button
