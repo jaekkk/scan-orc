@@ -22,3 +22,9 @@ export function resolveFilenameBase(input: string): string {
   const cleaned = sanitize(input)
   return cleaned.length > 0 ? cleaned : todayAsFilenameBase()
 }
+
+/** Appends a 2-digit (or wider, for 100+) 1-based index to a filename base — e.g. ("scan", 1) -> "scan-01" — to tell individually-shared/downloaded pages apart. */
+export function withIndexSuffix(base: string, oneBasedIndex: number, total: number): string {
+  const width = Math.max(2, String(total).length)
+  return `${base}-${String(oneBasedIndex).padStart(width, '0')}`
+}

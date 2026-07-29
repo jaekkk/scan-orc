@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveFilenameBase, todayAsFilenameBase } from './filename'
+import { resolveFilenameBase, todayAsFilenameBase, withIndexSuffix } from './filename'
 
 describe('resolveFilenameBase', () => {
   it('keeps a valid custom name as-is', () => {
@@ -30,5 +30,17 @@ describe('resolveFilenameBase', () => {
 describe('todayAsFilenameBase', () => {
   it('formats a given date as yyyy-mm-dd', () => {
     expect(todayAsFilenameBase(new Date(2026, 0, 5))).toBe('2026-01-05')
+  })
+})
+
+describe('withIndexSuffix', () => {
+  it('pads to 2 digits for totals under 100', () => {
+    expect(withIndexSuffix('scan', 1, 12)).toBe('scan-01')
+    expect(withIndexSuffix('scan', 12, 12)).toBe('scan-12')
+  })
+
+  it('widens the padding for totals of 100 or more', () => {
+    expect(withIndexSuffix('scan', 1, 120)).toBe('scan-001')
+    expect(withIndexSuffix('scan', 120, 120)).toBe('scan-120')
   })
 })

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Page } from '../types/page'
 import type { ImageFormat } from '../lib/export/buildImageZip'
 import { canShareFiles, shareFiles } from '../lib/export/shareFiles'
-import { resolveFilenameBase, todayAsFilenameBase } from '../lib/export/filename'
+import { resolveFilenameBase, todayAsFilenameBase, withIndexSuffix } from '../lib/export/filename'
 
 interface ExportScreenProps {
   pages: Page[]
@@ -10,12 +10,21 @@ interface ExportScreenProps {
 }
 
 type Busy = 'pdf' | 'images' | 'share-pdf' | 'share-images' | null
+type ImageBundleMode = 'zip' | 'individual'
+
+/** Delay between successive saveAs() calls when downloading multiple individual files — back-to-back downloads with no gap get throttled or silently dropped by some browsers. */
+const MULTI_DOWNLOAD_DELAY_MS = 300
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 export function ExportScreen({ pages, onBack }: ExportScreenProps) {
   const [busy, setBusy] = useState<Busy>(null)
   const [error, setError] = useState<string | null>(null)
   const [format, setFormat] = useState<ImageFormat>('jpeg')
   const [name, setName] = useState('')
+  const [bundleMode, setBundleMode] = useState<ImageBundleMode>('zip')
   // Feature-detected once, not re-checked per render — Web Share support
   // doesn't change mid-session.
   const [shareSupported] = useState(canShareFiles)
@@ -25,20 +34,35 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     return buildPdf(pages)
   }
 
-  async function buildImageDeliverable(): Promise<{ blob: Blob; filename: string }> {
+  /**
+   * Builds the image deliverable(s) for the current format/name/bundle
+   * settings. A single page always produces one plain image file. Multiple
+   * pages produce either one zip, or one file per page individually named
+   * with a `-01`, `-02`, … suffix so they stay distinguishable once shared
+   * or downloaded loose.
+   */
+  async function buildImageDeliverables(): Promise<{ blob: Blob; filename: string }[]> {
     const ext = format === 'jpeg' ? 'jpg' : 'png'
     const base = resolveFilenameBase(name)
 
     if (pages.length === 1) {
-      // Single page: skip the zip entirely for a plain one-click transfer.
       const { toImageBlob } = await import('../lib/export/buildImageZip')
       const blob = await toImageBlob(pages[0], format)
-      return { blob, filename: `${base}.${ext}` }
+      return [{ blob, filename: `${base}.${ext}` }]
     }
 
-    const { buildImageZip } = await import('../lib/export/buildImageZip')
-    const blob = await buildImageZip(pages, format)
-    return { blob, filename: `${base}.zip` }
+    if (bundleMode === 'zip') {
+      const { buildImageZip } = await import('../lib/export/buildImageZip')
+      const blob = await buildImageZip(pages, format)
+      return [{ blob, filename: `${base}.zip` }]
+    }
+
+    const { toImageBlob } = await import('../lib/export/buildImageZip')
+    const blobs = await Promise.all(pages.map((p) => toImageBlob(p, format)))
+    return blobs.map((blob, i) => ({
+      blob,
+      filename: `${withIndexSuffix(base, i + 1, pages.length)}.${ext}`,
+    }))
   }
 
   async function handleDownloadPdf() {
@@ -59,8 +83,11 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     setError(null)
     setBusy('images')
     try {
-      const [{ blob, filename }, { saveAs }] = await Promise.all([buildImageDeliverable(), import('file-saver')])
-      saveAs(blob, filename)
+      const [deliverables, { saveAs }] = await Promise.all([buildImageDeliverables(), import('file-saver')])
+      for (let i = 0; i < deliverables.length; i++) {
+        if (i > 0) await delay(MULTI_DOWNLOAD_DELAY_MS)
+        saveAs(deliverables[i].blob, deliverables[i].filename)
+      }
     } catch (err) {
       console.error(err)
       setError('이미지 생성 중 오류가 발생했습니다.')
@@ -95,9 +122,10 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     setError(null)
     setBusy('share-images')
     try {
-      const { blob, filename } = await buildImageDeliverable()
-      const file = new File([blob], filename, { type: blob.type })
-      const result = await shareFiles([file], { title: filename })
+      const deliverables = await buildImageDeliverables()
+      const files = deliverables.map((d) => new File([d.blob], d.filename, { type: d.blob.type }))
+      const title = deliverables.length === 1 ? deliverables[0].filename : resolveFilenameBase(name)
+      const result = await shareFiles(files, { title })
       if (result === 'unsupported') setError('이 브라우저는 공유하기를 지원하지 않습니다. 다운로드를 이용해주세요.')
     } catch (err) {
       console.error(err)
@@ -166,6 +194,29 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
         </label>
       </div>
 
+      {pages.length > 1 && (
+        <div className="format-toggle" role="radiogroup" aria-label="여러 장 묶음 방식">
+          <label>
+            <input
+              type="radio"
+              name="bundle-mode"
+              checked={bundleMode === 'zip'}
+              onChange={() => setBundleMode('zip')}
+            />
+            압축(zip)
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="bundle-mode"
+              checked={bundleMode === 'individual'}
+              onChange={() => setBundleMode('individual')}
+            />
+            개별 파일
+          </label>
+        </div>
+      )}
+
       <div className="export-action-row">
         <button
           type="button"
@@ -176,7 +227,9 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
           {busy === 'images'
             ? '이미지 생성 중…'
             : pages.length > 1
-              ? '이미지로 다운로드 (zip)'
+              ? bundleMode === 'zip'
+                ? '이미지로 다운로드 (zip)'
+                : `이미지로 다운로드 (${pages.length}개 파일)`
               : '이미지로 다운로드'}
         </button>
         {shareSupported && (
