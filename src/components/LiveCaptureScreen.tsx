@@ -7,10 +7,17 @@ import { getImageData, MAX_DIMENSION, DETECTION_MAX_DIMENSION } from '../lib/pip
 const DETECTION_INTERVAL_MS = 350
 
 interface LiveCaptureScreenProps {
-  onCapture: (file: File) => void
+  /**
+   * Awaited before the shutter re-enables, so back-to-back shots in continuous
+   * mode can't overlap. Resolves to the processed page's thumbnail URL to
+   * flash on screen, or null when there's nothing to flash (retake, error,
+   * or the fallback crop editor is about to take over).
+   */
+  onCapture: (file: File) => Promise<string | null>
   onCancel: () => void
   /** Escape hatch when the camera stream itself can't be used (permission denied, unsupported) — falls back to the OS-level camera picker. */
   onUseFilePicker: () => void
+  pageCount: number
 }
 
 type Status = 'starting' | 'streaming' | 'error'
@@ -19,16 +26,24 @@ function quadToPoints(quad: Quad): string {
   return quad.map((p) => `${p.x},${p.y}`).join(' ')
 }
 
-export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker }: LiveCaptureScreenProps) {
+export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker, pageCount }: LiveCaptureScreenProps) {
   const [status, setStatus] = useState<Status>('starting')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [quad, setQuad] = useState<Quad | null>(null)
   const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null)
   const [capturing, setCapturing] = useState(false)
+  const [flashUrl, setFlashUrl] = useState<string | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const busyRef = useRef(false)
+  const flashTimeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -115,7 +130,12 @@ export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker }: Live
       const canvas = drawVideoFrameToCanvas(video, MAX_DIMENSION)
       const blob = await canvasToBlob(canvas)
       const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' })
-      onCapture(file)
+      const thumbnailUrl = await onCapture(file)
+      if (thumbnailUrl) {
+        if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current)
+        setFlashUrl(thumbnailUrl)
+        flashTimeoutRef.current = window.setTimeout(() => setFlashUrl(null), 1200)
+      }
     } catch (err) {
       console.error(err)
       setErrorMessage('촬영 중 오류가 발생했습니다.')
@@ -138,6 +158,12 @@ export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker }: Live
         <p className="live-capture-hint">{quad ? '문서를 인식했습니다' : '문서를 화면 안에 맞춰주세요'}</p>
       )}
 
+      {status === 'streaming' && pageCount > 0 && (
+        <p className="live-capture-count">{pageCount}장 촬영됨</p>
+      )}
+
+      {flashUrl && <img src={flashUrl} alt="방금 촬영된 결과" className="live-capture-flash" />}
+
       {status === 'starting' && <p className="live-capture-hint">카메라를 여는 중…</p>}
 
       {status === 'error' && (
@@ -155,7 +181,7 @@ export function LiveCaptureScreen({ onCapture, onCancel, onUseFilePicker }: Live
       {status === 'streaming' && (
         <div className="live-capture-controls">
           <button type="button" className="live-capture-cancel" onClick={onCancel}>
-            취소
+            {pageCount > 0 ? '완료' : '취소'}
           </button>
           <button
             type="button"

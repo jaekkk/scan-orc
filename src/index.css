@@ -234,7 +234,7 @@ h1 {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 20;
+  z-index: 40;
 }
 
 .modal {
@@ -431,6 +431,19 @@ h1 {
   white-space: nowrap;
 }
 
+.live-capture-count {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: 16px;
+  color: #fff;
+  background: color-mix(in srgb, #000 55%, transparent);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  margin: 0;
+  white-space: nowrap;
+}
+
 .live-capture-controls {
   position: absolute;
   bottom: max(24px, env(safe-area-inset-bottom));
@@ -466,6 +479,18 @@ h1 {
 .live-capture-shutter:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.live-capture-flash {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  right: 24px;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px color-mix(in srgb, #000 40%, transparent);
 }
 
 .live-capture-error {

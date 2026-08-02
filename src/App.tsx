@@ -37,7 +37,7 @@ function App() {
     }
   }
 
-  async function processAndStoreFile(file: File, targetId: string | null) {
+  async function processAndStoreFile(file: File, targetId: string | null): Promise<Page | null> {
     setError(null)
     setStep('processing')
     try {
@@ -55,10 +55,12 @@ function App() {
         setPreviewIndex(index)
         setOpenCropEditorOnPreview(true)
       }
+      return page
     } catch (err) {
       console.error(err)
       const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
       setError(`사진 처리 중 오류가 발생했습니다. 다시 시도해주세요. [${detail}]`)
+      return null
     } finally {
       setStep('capture')
     }
@@ -74,11 +76,20 @@ function App() {
     await processAndStoreFile(file, targetId)
   }
 
-  function handleLiveCapture(file: File) {
-    setShowLiveCapture(false)
+  async function handleLiveCapture(file: File): Promise<string | null> {
     const targetId = retakeTargetId.current
     retakeTargetId.current = null
-    void processAndStoreFile(file, targetId)
+    const page = await processAndStoreFile(file, targetId)
+    // Retake targets a single page — close the camera once it's replaced.
+    // A plain add keeps the camera open so multiple pages can be shot in a row.
+    if (targetId) {
+      setShowLiveCapture(false)
+      return null
+    }
+    // Fallback boundary detection already hands off to the crop editor modal —
+    // no need to flash a preview the user is about to be dropped into anyway.
+    if (!page || page.boundaryConfidence === 'fallback') return null
+    return page.thumbnailUrl
   }
 
   function handleUseFilePicker() {
@@ -142,6 +153,7 @@ function App() {
           onCapture={handleLiveCapture}
           onCancel={() => setShowLiveCapture(false)}
           onUseFilePicker={handleUseFilePicker}
+          pageCount={pages.length}
         />
       )}
 
