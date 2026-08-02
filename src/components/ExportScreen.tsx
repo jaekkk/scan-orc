@@ -108,7 +108,7 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
       const blob = await buildPdfBlob()
       const filename = `${resolveFilenameBase(name)}.pdf`
       const file = new File([blob], filename, { type: 'application/pdf' })
-      const result = await shareFiles([file], { title: filename })
+      const result = await shareFiles([file])
       if (result === 'unsupported') setError('이 브라우저는 공유하기를 지원하지 않습니다. 다운로드를 이용해주세요.')
     } catch (err) {
       console.error(err)
@@ -124,8 +124,7 @@ export function ExportScreen({ pages, onBack }: ExportScreenProps) {
     try {
       const deliverables = await buildImageDeliverables()
       const files = deliverables.map((d) => new File([d.blob], d.filename, { type: d.blob.type }))
-      const title = deliverables.length === 1 ? deliverables[0].filename : resolveFilenameBase(name)
-      const result = await shareFiles(files, { title })
+      const result = await shareFiles(files)
       if (result === 'unsupported') setError('이 브라우저는 공유하기를 지원하지 않습니다. 다운로드를 이용해주세요.')
     } catch (err) {
       console.error(err)
