@@ -340,6 +340,36 @@ h1 {
   cursor: grabbing;
 }
 
+.crop-editor-loupe {
+  position: absolute;
+  top: 8px;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  background-repeat: no-repeat;
+  background-color: var(--bg);
+  pointer-events: none;
+}
+
+.crop-editor-loupe::before,
+.crop-editor-loupe::after {
+  content: '';
+  position: absolute;
+  background: var(--accent);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.crop-editor-loupe::before {
+  width: 16px;
+  height: 2px;
+}
+
+.crop-editor-loupe::after {
+  width: 2px;
+  height: 16px;
+}
+
 .page-number {
   position: absolute;
   top: 4px;
