@@ -1,5 +1,5 @@
-import type { Point, Quad } from './geometry'
-import { polygonArea } from './geometry'
+import type { Point, Quad, ScoredQuad } from './geometry'
+import { polygonArea, quadAngleScore } from './geometry'
 import { boxBlur, otsuThreshold, toGrayscale } from './otsu'
 import { convexHull } from './convexHull'
 import { reduceToQuad } from './reduceToQuad'
@@ -7,6 +7,7 @@ import { largestComponent } from './connectedComponents'
 import { flattenIllumination } from './illumination'
 import { extractChannel } from './channels'
 import { openMask } from './morphology'
+import { detectEdgeQuad } from './detectEdgeQuad'
 import type { RawImage } from './rawImage'
 
 const BLUE_CHANNEL = 2
@@ -27,6 +28,11 @@ const OPEN_RADIUS = 1
 // essentially never exactly parallel to and coincident with the sensor
 // edge for an entire side in a handheld photo.
 const EDGE_TOUCH_MARGIN_RATIO = 0.01
+// A pass scoring at least this is trusted outright (skips the slower
+// fallback passes); below MIN_SCORE even the best candidate is more likely a
+// misdetection than a document, so the caller's inset-crop fallback is safer.
+const GOOD_SCORE = 0.75
+const MIN_SCORE = 0.3
 
 /** For each row/column, the extremal (min/max) foreground pixel — a superset of the true silhouette's convex hull vertices, much cheaper than collecting every boundary pixel. */
 function extractMaskExtrema(mask: Uint8Array, width: number, height: number): Point[] {
@@ -92,8 +98,21 @@ function hasSideFlushWithBorder(quad: Quad, width: number, height: number): bool
   return false
 }
 
-/** Isolates the largest connected blob in `mask`, then reduces its silhouette to a quad — or null if it's too small or (being background bleeding to every edge) actually the frame around the document. */
-function candidateQuad(mask: Uint8Array, width: number, height: number): Quad | null {
+/**
+ * 0..1 plausibility of `quad` as a photographed document: how fully the blob
+ * fills it (a hull dragged out by glare/background bleed leaves the blob
+ * covering much less than the quad) times how close its corners are to right
+ * angles (perspective skews them, but a wildly non-rectangular quad is
+ * almost never a document). Area only breaks ties between equally good quads.
+ */
+function scoreQuad(quad: Quad, blobArea: number, imageArea: number): number {
+  const quadArea = polygonArea(quad)
+  const fill = Math.min(1, blobArea / quadArea)
+  return fill * quadAngleScore(quad) * (0.9 + 0.1 * (quadArea / imageArea))
+}
+
+/** Isolates the largest connected blob in `mask`, then reduces its silhouette to a scored quad — or null if it's too small or (being background bleeding to every edge) actually the frame around the document. */
+function candidateQuad(mask: Uint8Array, width: number, height: number): ScoredQuad | null {
   const opened = openMask(mask, width, height, OPEN_RADIUS)
   const component = largestComponent(opened, width, height)
   if (!component) return null
@@ -116,26 +135,26 @@ function candidateQuad(mask: Uint8Array, width: number, height: number): Quad | 
   if (area < imageArea * MIN_AREA_RATIO) return null
   if (hasSideFlushWithBorder(quad, width, height)) return null
 
-  return quad
+  return { quad, score: scoreQuad(quad, component.area, imageArea) }
 }
 
 /**
  * Otsu-thresholds `gray`, tries both polarities (document brighter than its
  * surroundings — typical white paper — or darker, e.g. a dark cover on a
- * light desk), and returns whichever side yields a larger valid quad. The
+ * light desk), and returns whichever side yields the higher-scoring valid quad. The
  * background, being on every side of the document, almost always forms the
  * single biggest connected blob for whichever polarity it falls on — sized
  * away by candidateQuad's full-frame check — so the document tends to "win"
  * on the other polarity instead.
  */
-function detectFromGray(gray: Uint8ClampedArray, width: number, height: number): Quad | null {
+function detectFromGray(gray: Uint8ClampedArray, width: number, height: number): ScoredQuad | null {
   const threshold = otsuThreshold(gray)
 
   const brightQuad = candidateQuad(buildMask(gray, threshold, true), width, height)
   const darkQuad = candidateQuad(buildMask(gray, threshold, false), width, height)
 
   if (brightQuad && darkQuad) {
-    return polygonArea(brightQuad) >= polygonArea(darkQuad) ? brightQuad : darkQuad
+    return brightQuad.score >= darkQuad.score ? brightQuad : darkQuad
   }
   return brightQuad ?? darkQuad
 }
@@ -148,7 +167,7 @@ function detectFromGray(gray: Uint8ClampedArray, width: number, height: number):
  * hard failure) if no confident quad is found, so the caller can fall back
  * to a default inset crop.
  *
- * Three passes, each only tried if the previous one found nothing:
+ * Four passes, tried in order until one scores confidently:
  * 1. Standard luma — works whenever the document and its surroundings
  *    actually differ in brightness.
  * 2. Luma with large-scale lighting gradients (shadows) flattened out first.
@@ -156,16 +175,34 @@ function detectFromGray(gray: Uint8ClampedArray, width: number, height: number):
  *    same luma as a warm-toned surroundings (tan leather, wood, skin) while
  *    still differing sharply in blue (warm colors are blue-deficient), so
  *    this catches document/background pairs luma can't separate at all.
+ * 4. Edge lines (Hough) — for when no threshold separates the two but the
+ *    paper's edge still shows as a line; see detectEdgeQuad.
  */
 export function detectDocumentQuad(imageData: RawImage): Quad | null {
   const { width, height, data } = imageData
   const gray = toGrayscale(data, width, height)
   const blurred = boxBlur(gray, width, height, BLUR_RADIUS)
-  const blueChannel = boxBlur(extractChannel(data, width, height, BLUE_CHANNEL), width, height, BLUR_RADIUS)
 
-  return (
-    detectFromGray(blurred, width, height) ??
-    detectFromGray(flattenIllumination(blurred, width, height), width, height) ??
-    detectFromGray(blueChannel, width, height)
-  )
+  const passes = [
+    () => detectFromGray(blurred, width, height),
+    () => detectFromGray(flattenIllumination(blurred, width, height), width, height),
+    () =>
+      detectFromGray(
+        boxBlur(extractChannel(data, width, height, BLUE_CHANNEL), width, height, BLUR_RADIUS),
+        width,
+        height,
+      ),
+    () => detectEdgeQuad(blurred, width, height),
+  ]
+
+  // A confident pass wins immediately; otherwise keep the best of the rest
+  // rather than trusting whichever pass happened to find something first.
+  let best: ScoredQuad | null = null
+  for (const run of passes) {
+    const candidate = run()
+    if (!candidate) continue
+    if (candidate.score >= GOOD_SCORE) return candidate.quad
+    if (!best || candidate.score > best.score) best = candidate
+  }
+  return best && best.score >= MIN_SCORE ? best.quad : null
 }

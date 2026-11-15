@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distance, insetQuad, orderPoints, polygonArea, scaleQuad, warpedSize } from './geometry'
+import { distance, insetQuad, orderPoints, polygonArea, quadAngleScore, scaleQuad, warpedSize } from './geometry'
 
 describe('orderPoints', () => {
   it('sorts an axis-aligned rectangle into tl/tr/br/bl regardless of input order', () => {
@@ -77,5 +77,23 @@ describe('warpedSize', () => {
       { x: 0, y: 50 },
     ])
     expect(warpedSize(quad)).toEqual({ width: 100, height: 50 })
+  })
+})
+
+describe('quadAngleScore', () => {
+  it('is 1 for a rectangle', () => {
+    const quad = insetQuad(200, 100, 0.1)
+    expect(quadAngleScore(quad)).toBeCloseTo(1)
+  })
+
+  it('drops for a skewed parallelogram', () => {
+    const skewed = quadAngleScore([
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 130, y: 50 },
+      { x: 30, y: 50 },
+    ])
+    expect(skewed).toBeLessThan(0.7)
+    expect(skewed).toBeGreaterThan(0)
   })
 })

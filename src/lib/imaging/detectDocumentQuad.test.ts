@@ -271,3 +271,32 @@ describe('detectDocumentQuad', () => {
     }
   })
 })
+
+describe('detectDocumentQuad edge fallback', () => {
+  it('finds a document with the same tone as its surroundings when only a thin outline separates them', () => {
+    const width = 200
+    const height = 150
+    const rect = { x0: 40, y0: 30, x1: 160, y1: 120 }
+    const data = new Uint8ClampedArray(width * height * 4)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const onOutline =
+          x >= rect.x0 - 1 && x <= rect.x1 && y >= rect.y0 - 1 && y <= rect.y1 &&
+          (x <= rect.x0 + 1 || x >= rect.x1 - 2 || y <= rect.y0 + 1 || y >= rect.y1 - 2)
+        const v = onOutline ? 90 : 170
+        const i = (y * width + x) * 4
+        data[i] = data[i + 1] = data[i + 2] = v
+        data[i + 3] = 255
+      }
+    }
+
+    const quad = detectDocumentQuad({ width, height, data })
+    expect(quad).not.toBeNull()
+    if (!quad) return
+    const area = polygonArea(quad)
+    const expected = (rect.x1 - rect.x0) * (rect.y1 - rect.y0)
+    expect(area).toBeGreaterThan(expected * 0.9)
+    // the outline itself and the blur widen the edge a few px outward
+    expect(area).toBeLessThan(expected * 1.2)
+  })
+})

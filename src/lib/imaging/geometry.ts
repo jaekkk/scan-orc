@@ -5,6 +5,12 @@ export interface Point {
 
 export type Quad = [Point, Point, Point, Point]
 
+/** A detected quad with its 0..1 plausibility as a document, so competing detectors can be compared. */
+export interface ScoredQuad {
+  quad: Quad
+  score: number
+}
+
 /**
  * Sorts 4 arbitrary-order corner points into [topLeft, topRight, bottomRight, bottomLeft].
  * approxPolyDP does not guarantee point order, but getPerspectiveTransform requires a
@@ -39,6 +45,23 @@ export function polygonArea(points: Point[]): number {
     sum += p1.x * p2.y - p2.x * p1.y
   }
   return Math.abs(sum) / 2
+}
+
+/** 0..1: 1 when all four corners are right angles, falling to 0 at an average 45° deviation. */
+export function quadAngleScore(quad: Quad): number {
+  let totalDeviation = 0
+  for (let i = 0; i < 4; i++) {
+    const prev = quad[(i + 3) % 4]
+    const curr = quad[i]
+    const next = quad[(i + 1) % 4]
+    const ax = prev.x - curr.x
+    const ay = prev.y - curr.y
+    const bx = next.x - curr.x
+    const by = next.y - curr.y
+    const angle = Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / (Math.hypot(ax, ay) * Math.hypot(bx, by) || 1))))
+    totalDeviation += Math.abs(angle - Math.PI / 2)
+  }
+  return Math.max(0, 1 - totalDeviation / 4 / (Math.PI / 4))
 }
 
 /** Default fallback quad: a fixed-percentage inset from the full image bounds. */
