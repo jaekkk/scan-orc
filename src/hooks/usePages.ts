@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Page } from '../types/page'
+import { createPageSaver, loadStoredPages, toPage } from '../lib/storage/pageStore'
 
 function revokePageUrls(page: Page) {
   URL.revokeObjectURL(page.thumbnailUrl)
@@ -18,6 +19,27 @@ function revokeIfUnused(oldUrl: string, replacement: Page) {
 
 export function usePages() {
   const [pages, setPages] = useState<Page[]>([])
+  const savePages = useRef<ReturnType<typeof createPageSaver> | null>(null)
+
+  // Restore scans left over from a previous session (reload, tab discarded by the browser).
+  useEffect(() => {
+    let cancelled = false
+    void loadStoredPages().then((stored) => {
+      if (cancelled) return
+      const restored = stored.map(toPage)
+      savePages.current = createPageSaver(restored)
+      // Pages captured while loading was still in flight stay after the restored ones.
+      setPages((prev) => [...restored, ...prev])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Saving starts only once restoring has finished, so the empty initial list can't wipe the stored scans.
+  useEffect(() => {
+    savePages.current?.(pages)
+  }, [pages])
 
   const addPage = useCallback((page: Page) => {
     setPages((prev) => [...prev, page])
